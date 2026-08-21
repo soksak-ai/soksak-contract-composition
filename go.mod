@@ -1,3 +1,3 @@
-module github.com/soksak/soksak-contract-composition
+module github.com/soksak-ai/soksak-contract-composition
 
 go 1.25.0

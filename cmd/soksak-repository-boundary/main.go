@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	composition "github.com/soksak/soksak-contract-composition"
+	composition "github.com/soksak-ai/soksak-contract-composition"
 )
 
 func main() {

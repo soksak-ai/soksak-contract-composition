@@ -69,3 +69,11 @@ back into settings.json.
 
 Unknown fields, unknown enum values, relative paths, unpinned sources and duplicate exact unit
 identities are rejected. No legacy settings reader, path fallback or implicit provider exists.
+
+## Repository boundary conformance
+
+Every repository runs the same boundary case against itself. Executable code, tests, tasks and
+scripts do not read sibling plugin, sidecar, kit, contract or service source trees. Declarative
+dependency files may name another unit or package. Public contract references are allowed. Source
+symbolic links are rejected. A registry or product composition may list unit ids as data but does
+not execute their source builds.

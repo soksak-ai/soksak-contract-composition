@@ -137,6 +137,7 @@ func ValidateSettings(settings Settings) error {
 		return fmt.Errorf("composition settings generation: positive integer required")
 	}
 	seen := make(map[string]bool, len(settings.Installations))
+	versions := make(map[string]string, len(settings.Installations))
 	plugins := make(map[string]bool)
 	for index, installation := range settings.Installations {
 		if err := validateInstallation(installation); err != nil {
@@ -147,6 +148,11 @@ func ValidateSettings(settings Settings) error {
 			return fmt.Errorf("composition settings installation %d: duplicate unit %s", index, key)
 		}
 		seen[key] = true
+		unitKey := string(installation.Kind) + ":" + installation.ID
+		if version, found := versions[unitKey]; found && version != installation.Version {
+			return fmt.Errorf("composition settings version conflict for %s: %s and %s", unitKey, version, installation.Version)
+		}
+		versions[unitKey] = installation.Version
 		if installation.Kind == Plugin {
 			plugins[key] = true
 		}

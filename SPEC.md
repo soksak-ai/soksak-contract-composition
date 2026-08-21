@@ -31,6 +31,9 @@ Plugin is the user-facing activation root. settings.json has one explicit enable
 every installed plugin. Sidecars and kits are not independently enabled; the resolved graph marks
 them active only when an enabled, resolved plugin reaches them through dependency or binding edges.
 Several plugins may reference one exact sidecar or kit node, which is installed and started once.
+One composition installs at most one version for each kind and id. A second version is a conflict,
+not a second process name or a fallback. Active dependency use is derived from enabled plugin roots;
+it is not stored as a mutable reference count.
 
 Contracts and specifications are exact references in unit manifests and certified conformance
 reports in the plugin registry. They are not runtime installations. Host services are core build

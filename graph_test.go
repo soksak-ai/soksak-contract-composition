@@ -167,6 +167,32 @@ func TestActivePluginsShareOneExactDependencyNode(t *testing.T) {
 	}
 }
 
+func TestSharedDependencyActivityIsDerivedFromPluginRoots(t *testing.T) {
+	one := testUnit(Plugin, "one")
+	two := testUnit(Plugin, "two")
+	shared := testUnit(Sidecar, "shared")
+	oneManifest := unitManifest(one)
+	oneManifest.Dependencies = []UnitRef{shared}
+	twoManifest := unitManifest(two)
+	twoManifest.Dependencies = []UnitRef{shared}
+	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{devInstall(one, true), devInstall(two, true), devInstall(shared, true)}, Plugins: []PluginSelection{{Plugin: one, Enabled: false}, {Plugin: two, Enabled: true}}, Bindings: []Binding{}}
+	graph, err := Resolve(settings, map[string]UnitManifest{one.Key(): oneManifest, two.Key(): twoManifest, shared.Key(): unitManifest(shared)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activeOf(t, graph, one) || !activeOf(t, graph, two) || !activeOf(t, graph, shared) {
+		t.Fatalf("nodes = %+v", graph.Nodes)
+	}
+	settings.Plugins[1].Enabled = false
+	graph, err = Resolve(settings, map[string]UnitManifest{one.Key(): oneManifest, two.Key(): twoManifest, shared.Key(): unitManifest(shared)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activeOf(t, graph, shared) {
+		t.Fatalf("shared dependency remained active: %+v", graph.Nodes)
+	}
+}
+
 func TestResolveRejectsCycleMembersAndKeepsUnrelatedUnits(t *testing.T) {
 	a := testUnit(Kit, "a")
 	b := testUnit(Kit, "b")

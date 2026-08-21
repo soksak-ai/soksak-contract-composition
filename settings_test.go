@@ -80,6 +80,17 @@ func TestOnlyPluginsAreActivationRoots(t *testing.T) {
 	}
 }
 
+func TestOneCompositionInstallsOneVersionPerUnitID(t *testing.T) {
+	one := Installation{UnitRef: UnitRef{Kind: Sidecar, ID: "shared", Version: "0.0.1"}, Mode: Installed, InstallPath: "/opt/shared-1", Manifest: UnitManifestFile, Source: Source{Type: GitSource, URL: "https://github.com/example/shared", Commit: testCommit}}
+	two := one
+	two.Version = "0.0.2"
+	two.InstallPath = "/opt/shared-2"
+	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{one, two}, Plugins: []PluginSelection{}, Bindings: []Binding{}}
+	if err := ValidateSettings(settings); err == nil || !strings.Contains(err.Error(), "version conflict") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestDevelopmentModeBlocksUpdater(t *testing.T) {
 	installed := Installation{UnitRef: testUnit(Plugin, "installed"), Mode: Installed}
 	development := Installation{UnitRef: testUnit(Plugin, "development"), Mode: Development}

@@ -74,6 +74,7 @@ type Binding struct {
 
 type Settings struct {
 	Spec          string         `json:"spec"`
+	Generation    uint64         `json:"generation"`
 	Installations []Installation `json:"installations"`
 	Bindings      []Binding      `json:"bindings"`
 }
@@ -125,6 +126,9 @@ func ParseSettings(data []byte) (Settings, error) {
 func ValidateSettings(settings Settings) error {
 	if settings.Spec != SettingsSpec {
 		return fmt.Errorf("composition settings spec: exact %s required", SettingsSpec)
+	}
+	if settings.Generation < 1 {
+		return fmt.Errorf("composition settings generation: positive integer required")
 	}
 	seen := make(map[string]bool, len(settings.Installations))
 	for index, installation := range settings.Installations {

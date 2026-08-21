@@ -14,7 +14,7 @@ func testUnit(kind UnitKind, id string) UnitRef {
 
 func TestSettingsRecordInstalledAndDevelopmentUnits(t *testing.T) {
 	settings := Settings{
-		Spec: SettingsSpec,
+		Spec: SettingsSpec, Generation: 1,
 		Installations: []Installation{
 			{
 				UnitRef: testUnit(Plugin, "terminal-view"), Mode: Installed, Enabled: true,
@@ -40,7 +40,7 @@ func TestSettingsRecordInstalledAndDevelopmentUnits(t *testing.T) {
 
 func TestSettingsSupportEveryUnitKind(t *testing.T) {
 	for _, kind := range []UnitKind{Plugin, Sidecar, Kit, Contract, Spec, Service} {
-		settings := Settings{Spec: SettingsSpec, Installations: []Installation{{
+		settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{{
 			UnitRef: testUnit(kind, "unit-"+string(kind)), Mode: Development, Enabled: true,
 			InstallPath: "/work/unit-" + string(kind), Manifest: "soksak-unit.json",
 			Source: Source{Type: PathSource, Path: "/work/unit-" + string(kind)},
@@ -70,7 +70,7 @@ func TestSettingsRejectRelativePathsAndUnpinnedSources(t *testing.T) {
 		{UnitRef: testUnit(Contract, "path"), Mode: Development, InstallPath: "/work/path", Manifest: "soksak-unit.json", Source: Source{Type: PathSource, Path: "relative"}},
 	}
 	for _, install := range cases {
-		if err := ValidateSettings(Settings{Spec: SettingsSpec, Installations: []Installation{install}}); err == nil {
+		if err := ValidateSettings(Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{install}}); err == nil {
 			t.Errorf("accepted invalid installation: %+v", install)
 		}
 	}
@@ -86,18 +86,18 @@ func TestModeAndSourceMustAgree(t *testing.T) {
 		Manifest: "soksak-unit.json", Source: Source{Type: PathSource, Path: "/work/installed-path"},
 	}
 	for _, install := range []Installation{developmentArchive, installedPath} {
-		if err := ValidateSettings(Settings{Spec: SettingsSpec, Installations: []Installation{install}}); err == nil {
+		if err := ValidateSettings(Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{install}}); err == nil {
 			t.Errorf("accepted mismatched mode and source: %+v", install)
 		}
 	}
 }
 
 func TestSettingsJSONIsStrictAndExactVersioned(t *testing.T) {
-	unknown := `{"spec":"soksak-spec-composition@0.0.1","installations":[],"bindings":[],"fallback":true}`
+	unknown := `{"spec":"soksak-spec-composition@0.0.1","generation":1,"installations":[],"bindings":[],"fallback":true}`
 	if _, err := ParseSettings([]byte(unknown)); err == nil {
 		t.Fatal("settings accepted an unknown fallback field")
 	}
-	rangeVersion := `{"spec":"soksak-spec-composition@0.0.1","installations":[{"kind":"plugin","id":"demo","version":"^0.0.1","mode":"development","enabled":true,"installPath":"/work/demo","manifest":"soksak-unit.json","source":{"type":"path","path":"/work/demo"}}],"bindings":[]}`
+	rangeVersion := `{"spec":"soksak-spec-composition@0.0.1","generation":1,"installations":[{"kind":"plugin","id":"demo","version":"^0.0.1","mode":"development","enabled":true,"installPath":"/work/demo","manifest":"soksak-unit.json","source":{"type":"path","path":"/work/demo"}}],"bindings":[]}`
 	if _, err := ParseSettings([]byte(rangeVersion)); err == nil || !strings.Contains(err.Error(), "version") {
 		t.Fatalf("range version error = %v", err)
 	}

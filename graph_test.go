@@ -34,6 +34,7 @@ func TestResolveBuildsExplicitCrossKindEdges(t *testing.T) {
 	stateContract := contract("soksak-spec-sidecar-terminal")
 	settings := Settings{
 		Spec:          SettingsSpec,
+		Generation:    1,
 		Installations: []Installation{devInstall(view, true), devInstall(pty, true), devInstall(state, true), devInstall(kit, true)},
 		Bindings: []Binding{
 			{Consumer: view, Requirement: "pty", Provider: pty},
@@ -69,7 +70,7 @@ func TestResolveRejectsOnlyTheConsumerWithAMissingBinding(t *testing.T) {
 	wanted := contract("soksak-spec-sidecar-demo")
 	consumerManifest := unitManifest(consumer)
 	consumerManifest.Consumes = []Requirement{{Name: "backend", Contract: wanted}}
-	settings := Settings{Spec: SettingsSpec, Installations: []Installation{devInstall(consumer, true), devInstall(unrelated, true)}}
+	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{devInstall(consumer, true), devInstall(unrelated, true)}}
 	graph, err := Resolve(settings, map[string]UnitManifest{consumer.Key(): consumerManifest, unrelated.Key(): unitManifest(unrelated)})
 	if err != nil {
 		t.Fatal(err)
@@ -95,6 +96,7 @@ func TestResolveRejectsAContractMismatchWithoutFallback(t *testing.T) {
 	providerManifest.Implements = []ContractRef{contract("soksak-spec-sidecar-other")}
 	settings := Settings{
 		Spec:          SettingsSpec,
+		Generation:    1,
 		Installations: []Installation{devInstall(consumer, true), devInstall(provider, true)},
 		Bindings:      []Binding{{Consumer: consumer, Requirement: "backend", Provider: provider}},
 	}
@@ -115,7 +117,7 @@ func TestResolveRejectsDisabledDependencies(t *testing.T) {
 	dependency := testUnit(Kit, "dependency")
 	consumerManifest := unitManifest(consumer)
 	consumerManifest.Dependencies = []UnitRef{dependency}
-	settings := Settings{Spec: SettingsSpec, Installations: []Installation{devInstall(consumer, true), devInstall(dependency, false)}}
+	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{devInstall(consumer, true), devInstall(dependency, false)}}
 	graph, err := Resolve(settings, map[string]UnitManifest{consumer.Key(): consumerManifest, dependency.Key(): unitManifest(dependency)})
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +135,7 @@ func TestResolveRejectsCycleMembersAndKeepsUnrelatedUnits(t *testing.T) {
 	aManifest.Dependencies = []UnitRef{b}
 	bManifest := unitManifest(b)
 	bManifest.Dependencies = []UnitRef{a}
-	settings := Settings{Spec: SettingsSpec, Installations: []Installation{devInstall(a, true), devInstall(b, true), devInstall(c, true)}}
+	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{devInstall(a, true), devInstall(b, true), devInstall(c, true)}}
 	graph, err := Resolve(settings, map[string]UnitManifest{a.Key(): aManifest, b.Key(): bManifest, c.Key(): unitManifest(c)})
 	if err != nil {
 		t.Fatal(err)

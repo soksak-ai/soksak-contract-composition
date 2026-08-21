@@ -1,6 +1,8 @@
 # Soksak composition contract 0.0.1
 
-settings.json is the installation composition record. It declares every selected unit's exact
+The file at identity-home/settings.json is the installation composition record. For the release
+identity this is ~/.soksak/settings.json. Other identities use their own home and never modify the
+release composition. The file declares every selected unit's exact
 identity, activation state, absolute install path, manifest location and installation source.
 Loaders resolve no sibling checkout and guess no kind-specific directory.
 
@@ -13,8 +15,9 @@ Loaders resolve no sibling checkout and guess no kind-specific directory.
 A Git checkout is not implicitly development. A checkout installed at an exact commit uses
 installed; only an explicitly selected editable path uses development.
 
-Changing mode or path replaces the settings document atomically. The runtime publishes a
-composition change after resolving the new document; loaders and UI do not poll.
+Changing mode, path, activation or binding replaces the settings document atomically. Every write
+uses compare-and-swap against generation and advances it by exactly one. The runtime publishes one
+composition.changed event after resolving the new document; loaders, updater and UI do not poll.
 
 ## Unit kinds
 

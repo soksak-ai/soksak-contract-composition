@@ -38,3 +38,16 @@ func TestCompositionChangeHasOneStableEventName(t *testing.T) {
 		t.Fatalf("event = %q", ChangeEvent)
 	}
 }
+
+func TestInitializeCreatesOnlyGenerationOne(t *testing.T) {
+	settings, change, err := Initialize(Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{}, Plugins: []PluginSelection{}, Bindings: []Binding{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Generation != 1 || change != (Change{PreviousGeneration: 0, Generation: 1}) {
+		t.Fatalf("change = %+v", change)
+	}
+	if _, _, err := Initialize(emptySettings(2)); err == nil {
+		t.Fatal("generation two was accepted as initialization")
+	}
+}

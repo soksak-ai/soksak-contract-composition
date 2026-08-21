@@ -19,6 +19,7 @@ Git checkout is not implicitly development; only the settings selection changes 
 Changing mode, path, activation or binding replaces the settings document atomically. Every write
 uses compare-and-swap against generation and advances it by exactly one. The runtime publishes one
 composition.changed event after resolving the new document; loaders, updater and UI do not poll.
+The first settings document is generation one and reports a change from generation zero.
 
 ## Unit kinds
 

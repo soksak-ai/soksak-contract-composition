@@ -7,6 +7,16 @@ type Change struct {
 	Generation         uint64 `json:"generation"`
 }
 
+func Initialize(settings Settings) (Settings, Change, error) {
+	if err := ValidateSettings(settings); err != nil {
+		return Settings{}, Change{}, err
+	}
+	if settings.Generation != 1 {
+		return Settings{}, Change{}, ErrGenerationStep{Previous: 0, Next: settings.Generation}
+	}
+	return settings, Change{PreviousGeneration: 0, Generation: 1}, nil
+}
+
 func Replace(current, next Settings, expectedGeneration uint64) (Settings, Change, error) {
 	if err := ValidateSettings(current); err != nil {
 		return Settings{}, Change{}, err

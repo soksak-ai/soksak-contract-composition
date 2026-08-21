@@ -30,6 +30,18 @@ func TestBoundaryRejectsSiblingSourceUseInTestsAndTasks(t *testing.T) {
 	}
 }
 
+func TestBoundaryRejectsSplitPathConstruction(t *testing.T) {
+	root := t.TempDir()
+	writeBoundaryFile(t, root, "gate_test.go", "package gate\nvar root = filepath.Join(\"..\", \"soksak-"+"sidecars\", name)\n")
+	findings, err := CheckRepositoryBoundary(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 || findings[0].Rule != "no-sibling-source" {
+		t.Fatalf("findings = %+v", findings)
+	}
+}
+
 func TestBoundaryAllowsDeclarativeDependenciesAndContractReferences(t *testing.T) {
 	root := t.TempDir()
 	writeBoundaryFile(t, root, "package.json", "{\"dependencies\":{\"kit\":\"file:../../soksak-"+"kits/kit\"}}")

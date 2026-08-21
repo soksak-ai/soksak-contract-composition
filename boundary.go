@@ -34,8 +34,8 @@ var skippedBoundaryTrees = map[string]bool{
 }
 
 var siblingSourceTokens = []string{
-	"soksak-" + "contracts/", "soksak-" + "kits/", "soksak-" + "plugins/",
-	"soksak-" + "sidecars/", "wails-" + "services/",
+	"soksak-" + "contracts", "soksak-" + "kits", "soksak-" + "plugins",
+	"soksak-" + "sidecars", "wails-" + "services",
 }
 
 func CheckRepositoryBoundary(root string) ([]BoundaryFinding, error) {

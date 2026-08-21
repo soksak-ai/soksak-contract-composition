@@ -13,6 +13,7 @@ func unitManifest(unit UnitRef) UnitManifest {
 	return UnitManifest{
 		Spec: UnitSpec, UnitRef: unit,
 		Dependencies: []UnitRef{}, Implements: []ContractRef{}, Consumes: []Requirement{},
+		Bindings:    []ProviderBinding{},
 		Entrypoints: []Entrypoint{{Role: "package", Path: "package.json"}},
 	}
 }
@@ -55,6 +56,7 @@ func TestResolveBuildsExplicitCrossKindEdges(t *testing.T) {
 	viewManifest := unitManifest(view)
 	viewManifest.Dependencies = []UnitRef{kit}
 	viewManifest.Consumes = []Requirement{{Name: "pty", Contract: ptyContract}, {Name: "state", Contract: stateContract}}
+	viewManifest.Bindings = []ProviderBinding{{Requirement: "pty", Provider: pty}, {Requirement: "state", Provider: state}}
 	ptyManifest := unitManifest(pty)
 	ptyManifest.Implements = []ContractRef{ptyContract}
 	stateManifest := unitManifest(state)
@@ -77,10 +79,12 @@ func TestResolveBuildsExplicitCrossKindEdges(t *testing.T) {
 
 func TestResolveRejectsOnlyTheConsumerWithAMissingBinding(t *testing.T) {
 	consumer := testUnit(Plugin, "consumer")
+	provider := testUnit(Sidecar, "provider")
 	unrelated := testUnit(Kit, "unrelated")
 	wanted := contract("soksak-spec-sidecar-demo")
 	consumerManifest := unitManifest(consumer)
 	consumerManifest.Consumes = []Requirement{{Name: "backend", Contract: wanted}}
+	consumerManifest.Bindings = []ProviderBinding{{Requirement: "backend", Provider: provider}}
 	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{devInstall(consumer, true), devInstall(unrelated, true)}, Plugins: selections(consumer)}
 	graph, err := Resolve(settings, map[string]UnitManifest{consumer.Key(): consumerManifest, unrelated.Key(): unitManifest(unrelated)})
 	if err != nil {
@@ -103,6 +107,7 @@ func TestResolveRejectsAContractMismatchWithoutFallback(t *testing.T) {
 	wanted := contract("soksak-spec-sidecar-wanted")
 	consumerManifest := unitManifest(consumer)
 	consumerManifest.Consumes = []Requirement{{Name: "backend", Contract: wanted}}
+	consumerManifest.Bindings = []ProviderBinding{{Requirement: "backend", Provider: provider}}
 	providerManifest := unitManifest(provider)
 	providerManifest.Implements = []ContractRef{contract("soksak-spec-sidecar-other")}
 	settings := Settings{
@@ -189,13 +194,45 @@ func TestResolveRejectsCycleMembersAndKeepsUnrelatedUnits(t *testing.T) {
 }
 
 func TestUnitManifestJSONRejectsRangesAndUnknownFields(t *testing.T) {
-	rangeDependency := `{"spec":"soksak-spec-unit@0.0.1","kind":"kit","id":"demo","version":"0.0.1","dependencies":[{"kind":"kit","id":"dep","version":"^0.0.1"}],"implements":[],"consumes":[],"entrypoints":[{"role":"package","path":"package.json"}]}`
+	rangeDependency := `{"spec":"soksak-spec-unit@0.0.1","kind":"kit","id":"demo","version":"0.0.1","dependencies":[{"kind":"kit","id":"dep","version":"^0.0.1"}],"implements":[],"consumes":[],"bindings":[],"entrypoints":[{"role":"package","path":"package.json"}]}`
 	if _, err := ParseUnitManifest([]byte(rangeDependency)); err == nil || !strings.Contains(err.Error(), "version") {
 		t.Fatalf("range dependency error = %v", err)
 	}
-	unknown := `{"spec":"soksak-spec-unit@0.0.1","kind":"kit","id":"demo","version":"0.0.1","dependencies":[],"implements":[],"consumes":[],"entrypoints":[{"role":"package","path":"package.json"}],"fallback":true}`
+	unknown := `{"spec":"soksak-spec-unit@0.0.1","kind":"kit","id":"demo","version":"0.0.1","dependencies":[],"implements":[],"consumes":[],"bindings":[],"entrypoints":[{"role":"package","path":"package.json"}],"fallback":true}`
 	if _, err := ParseUnitManifest([]byte(unknown)); err == nil {
 		t.Fatal("manifest accepted fallback")
+	}
+}
+
+func TestManifestDeclaresOneInitialProviderPerRequirement(t *testing.T) {
+	plugin := testUnit(Plugin, "view")
+	provider := testUnit(Sidecar, "state")
+	wanted := contract("soksak-spec-sidecar-terminal")
+	manifest := unitManifest(plugin)
+	manifest.Consumes = []Requirement{{Name: "state", Contract: wanted}}
+	manifest.Bindings = []ProviderBinding{{Requirement: "state", Provider: provider}}
+	if err := ValidateUnitManifest(manifest); err != nil {
+		t.Fatal(err)
+	}
+	if bindings, err := InitialBindings(manifest); err != nil || len(bindings) != 1 || bindings[0] != (Binding{Consumer: plugin, Requirement: "state", Provider: provider}) {
+		t.Fatalf("bindings=%+v err=%v", bindings, err)
+	}
+}
+
+func TestManifestRejectsMissingOrUnknownInitialProviders(t *testing.T) {
+	plugin := testUnit(Plugin, "view")
+	provider := testUnit(Sidecar, "state")
+	manifest := unitManifest(plugin)
+	manifest.Consumes = []Requirement{{Name: "state", Contract: contract("soksak-spec-sidecar-terminal")}}
+	for _, bindings := range [][]ProviderBinding{
+		{},
+		{{Requirement: "other", Provider: provider}},
+		{{Requirement: "state", Provider: provider}, {Requirement: "state", Provider: provider}},
+	} {
+		manifest.Bindings = bindings
+		if err := ValidateUnitManifest(manifest); err == nil {
+			t.Errorf("accepted bindings %+v", bindings)
+		}
 	}
 }
 

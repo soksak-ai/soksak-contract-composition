@@ -25,7 +25,7 @@ var executableSuffixes = map[string]bool{
 var declarativeFiles = map[string]bool{
 	"Cargo.lock": true, "Cargo.toml": true, "go.mod": true, "go.sum": true,
 	"package.json": true, "plugin.json": true, "pnpm-lock.yaml": true, "release.json": true,
-	"settings.json": true, UnitManifestFile: true,
+	"settings.json": true,
 }
 
 var skippedBoundaryTrees = map[string]bool{

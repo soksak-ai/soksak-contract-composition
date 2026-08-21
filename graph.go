@@ -1,268 +1,75 @@
 package composition
 
-import (
-	"fmt"
-	"sort"
-	"strings"
-)
-
-type NodeStatus string
+type Status string
 
 const (
-	Resolved NodeStatus = "resolved"
-	Rejected NodeStatus = "rejected"
-	Disabled NodeStatus = "disabled"
+	Resolved Status = "resolved"
+	Disabled Status = "disabled"
+	Rejected Status = "rejected"
 )
 
-type GraphNode struct {
-	UnitRef
-	Mode        UnitMode   `json:"mode"`
-	InstallPath string     `json:"installPath"`
-	Status      NodeStatus `json:"status"`
-	Active      bool       `json:"active"`
+type PluginState struct {
+	Plugin Plugin   `json:"plugin"`
+	Status Status   `json:"status"`
+	Issues []string `json:"issues"`
 }
-
-type EdgeKind string
-
-const (
-	DependencyEdge EdgeKind = "dependency"
-	BindingEdge    EdgeKind = "binding"
-)
-
-type GraphEdge struct {
-	From        UnitRef      `json:"from"`
-	To          UnitRef      `json:"to"`
-	Kind        EdgeKind     `json:"kind"`
-	Requirement string       `json:"requirement,omitempty"`
-	Contract    *ContractRef `json:"contract,omitempty"`
+type SidecarState struct {
+	Sidecar Sidecar  `json:"sidecar"`
+	Status  Status   `json:"status"`
+	Issues  []string `json:"issues"`
 }
-
-type GraphIssue struct {
-	Unit    UnitRef `json:"unit"`
-	Code    string  `json:"code"`
-	Message string  `json:"message"`
+type KitState struct {
+	Kit    Kit      `json:"kit"`
+	Status Status   `json:"status"`
+	Issues []string `json:"issues"`
 }
-
 type Graph struct {
-	Nodes  []GraphNode  `json:"nodes"`
-	Edges  []GraphEdge  `json:"edges"`
-	Issues []GraphIssue `json:"issues"`
+	Plugins  []PluginState  `json:"plugins"`
+	Sidecars []SidecarState `json:"sidecars"`
+	Kits     []KitState     `json:"kits"`
+	Bindings []Binding      `json:"bindings"`
 }
 
-func Resolve(settings Settings, manifests map[string]UnitManifest) (Graph, error) {
+func Resolve(settings Settings) (Graph, error) {
 	if err := ValidateSettings(settings); err != nil {
 		return Graph{}, err
 	}
-	installations := make(map[string]Installation, len(settings.Installations))
-	for _, installation := range settings.Installations {
-		installations[installation.UnitRef.Key()] = installation
+	graph := Graph{Plugins: []PluginState{}, Sidecars: []SidecarState{}, Kits: []KitState{}, Bindings: append([]Binding(nil), settings.Bindings...)}
+	enabled := map[string]bool{}
+	for _, value := range settings.Sidecars {
+		status := Resolved
+		if !value.Enabled {
+			status = Disabled
+		}
+		graph.Sidecars = append(graph.Sidecars, SidecarState{Sidecar: value, Status: status, Issues: []string{}})
+		enabled["sidecar:"+value.ID+"@"+value.Version] = value.Enabled
 	}
-	graph := Graph{Nodes: make([]GraphNode, 0, len(settings.Installations)), Edges: []GraphEdge{}, Issues: []GraphIssue{}}
-	status := make(map[string]NodeStatus, len(settings.Installations))
-	pluginEnabled := make(map[string]bool, len(settings.Plugins))
-	for _, selection := range settings.Plugins {
-		pluginEnabled[selection.Plugin.Key()] = selection.Enabled
+	for _, value := range settings.Kits {
+		status := Resolved
+		if !value.Enabled {
+			status = Disabled
+		}
+		graph.Kits = append(graph.Kits, KitState{Kit: value, Status: status, Issues: []string{}})
+		enabled["kit:"+value.ID+"@"+value.Version] = value.Enabled
 	}
-	for _, installation := range settings.Installations {
-		current := Resolved
-		if installation.Kind == Plugin && !pluginEnabled[installation.UnitRef.Key()] {
-			current = Disabled
+	for _, value := range settings.Plugins {
+		status := Resolved
+		issues := []string{}
+		if !value.Enabled {
+			status = Disabled
 		}
-		manifest, found := manifests[installation.UnitRef.Key()]
-		if !found {
-			current = Rejected
-			graph.Issues = append(graph.Issues, issue(installation.UnitRef, "manifest-missing", "unit manifest is missing"))
-		} else {
-			if err := ValidateUnitManifest(manifest); err != nil {
-				current = Rejected
-				graph.Issues = append(graph.Issues, issue(installation.UnitRef, "manifest-invalid", err.Error()))
-			} else if manifest.UnitRef != installation.UnitRef {
-				current = Rejected
-				graph.Issues = append(graph.Issues, issue(installation.UnitRef, "manifest-identity", "unit manifest identity does not match settings"))
-			}
-		}
-		status[installation.UnitRef.Key()] = current
-		graph.Nodes = append(graph.Nodes, GraphNode{UnitRef: installation.UnitRef, Mode: installation.Mode, InstallPath: installation.InstallPath, Status: current})
-	}
-	bindingIndex := map[string]Binding{}
-	for index, binding := range settings.Bindings {
-		if err := validateRef(binding.Consumer); err != nil {
-			return Graph{}, fmt.Errorf("composition binding %d consumer: %w", index, err)
-		}
-		if err := validateRef(binding.Provider); err != nil {
-			return Graph{}, fmt.Errorf("composition binding %d provider: %w", index, err)
-		}
-		if !requirementPattern.MatchString(binding.Requirement) {
-			return Graph{}, fmt.Errorf("composition binding %d: invalid requirement", index)
-		}
-		key := binding.Consumer.Key() + ":" + binding.Requirement
-		if _, duplicate := bindingIndex[key]; duplicate {
-			return Graph{}, fmt.Errorf("composition binding %d: duplicate %s", index, key)
-		}
-		bindingIndex[key] = binding
-	}
-	for _, installation := range settings.Installations {
-		key := installation.UnitRef.Key()
-		if status[key] == Rejected {
-			continue
-		}
-		manifest := manifests[key]
-		for _, dependency := range manifest.Dependencies {
-			_, found := installations[dependency.Key()]
-			if !found {
-				reject(&graph, status, installation.UnitRef, "dependency-missing", "dependency is not installed: "+dependency.Key())
-				continue
-			}
-			graph.Edges = append(graph.Edges, GraphEdge{From: installation.UnitRef, To: dependency, Kind: DependencyEdge})
-			if status[dependency.Key()] != Resolved {
-				reject(&graph, status, installation.UnitRef, "dependency-unavailable", "dependency is disabled or rejected: "+dependency.Key())
-			}
-		}
-		for _, requirement := range manifest.Consumes {
-			binding, found := bindingIndex[key+":"+requirement.Name]
-			if !found {
-				reject(&graph, status, installation.UnitRef, "binding-missing", "binding is missing for requirement "+requirement.Name)
-				continue
-			}
-			_, installed := installations[binding.Provider.Key()]
-			if !installed {
-				reject(&graph, status, installation.UnitRef, "binding-provider-missing", "binding provider is not installed: "+binding.Provider.Key())
-				continue
-			}
-			contractCopy := requirement.Contract
-			graph.Edges = append(graph.Edges, GraphEdge{From: installation.UnitRef, To: binding.Provider, Kind: BindingEdge, Requirement: requirement.Name, Contract: &contractCopy})
-			if status[binding.Provider.Key()] != Resolved {
-				reject(&graph, status, installation.UnitRef, "binding-provider-unavailable", "binding provider is disabled or rejected: "+binding.Provider.Key())
-				continue
-			}
-			if !implements(manifests[binding.Provider.Key()], requirement.Contract) {
-				reject(&graph, status, installation.UnitRef, "binding-contract", "binding provider does not implement "+requirement.Contract.ID+"@"+requirement.Contract.Version)
-			}
-		}
-	}
-	markCycles(&graph, status)
-	propagateRejectedDependencies(&graph, status)
-	for index := range graph.Nodes {
-		graph.Nodes[index].Status = status[graph.Nodes[index].UnitRef.Key()]
-	}
-	markActive(&graph, pluginEnabled)
-	sortGraph(&graph)
-	return graph, nil
-}
-
-func markActive(graph *Graph, pluginEnabled map[string]bool) {
-	adjacency := make(map[string][]string)
-	for _, edge := range graph.Edges {
-		adjacency[edge.From.Key()] = append(adjacency[edge.From.Key()], edge.To.Key())
-	}
-	active := make(map[string]bool)
-	var visit func(string)
-	visit = func(key string) {
-		if active[key] {
-			return
-		}
-		active[key] = true
-		for _, next := range adjacency[key] {
-			visit(next)
-		}
-	}
-	for _, node := range graph.Nodes {
-		if node.Kind == Plugin && pluginEnabled[node.UnitRef.Key()] && node.Status == Resolved {
-			visit(node.UnitRef.Key())
-		}
-	}
-	for index := range graph.Nodes {
-		graph.Nodes[index].Active = active[graph.Nodes[index].UnitRef.Key()] && graph.Nodes[index].Status == Resolved
-	}
-}
-
-func issue(unit UnitRef, code, message string) GraphIssue {
-	return GraphIssue{Unit: unit, Code: code, Message: message}
-}
-
-func reject(graph *Graph, status map[string]NodeStatus, unit UnitRef, code, message string) {
-	status[unit.Key()] = Rejected
-	graph.Issues = append(graph.Issues, issue(unit, code, message))
-}
-
-func implements(manifest UnitManifest, wanted ContractRef) bool {
-	for _, provided := range manifest.Implements {
-		if provided == wanted {
-			return true
-		}
-	}
-	return false
-}
-
-func markCycles(graph *Graph, status map[string]NodeStatus) {
-	adjacency := map[string][]string{}
-	refs := map[string]UnitRef{}
-	for _, node := range graph.Nodes {
-		refs[node.UnitRef.Key()] = node.UnitRef
-	}
-	for _, edge := range graph.Edges {
-		if edge.Kind == DependencyEdge {
-			adjacency[edge.From.Key()] = append(adjacency[edge.From.Key()], edge.To.Key())
-		}
-	}
-	visiting, visited := map[string]bool{}, map[string]bool{}
-	var stack []string
-	var visit func(string)
-	visit = func(key string) {
-		if visited[key] {
-			return
-		}
-		if visiting[key] {
-			start := 0
-			for index, value := range stack {
-				if value == key {
-					start = index
-					break
+		if status == Resolved {
+			for _, binding := range settings.Bindings {
+				if binding.Consumer.Plugin != nil && *binding.Consumer.Plugin == value.PluginRef {
+					provider, _ := endpointKey(binding.Provider)
+					if active, known := enabled[provider]; !known || !active {
+						status = Rejected
+						issues = append(issues, "binding provider is absent or disabled: "+provider)
+					}
 				}
 			}
-			for _, member := range stack[start:] {
-				reject(graph, status, refs[member], "dependency-cycle", "dependency cycle detected")
-			}
-			return
 		}
-		visiting[key] = true
-		stack = append(stack, key)
-		for _, next := range adjacency[key] {
-			visit(next)
-		}
-		stack = stack[:len(stack)-1]
-		visiting[key] = false
-		visited[key] = true
+		graph.Plugins = append(graph.Plugins, PluginState{Plugin: value, Status: status, Issues: issues})
 	}
-	for key := range refs {
-		visit(key)
-	}
-}
-
-func propagateRejectedDependencies(graph *Graph, status map[string]NodeStatus) {
-	changed := true
-	for changed {
-		changed = false
-		for _, edge := range graph.Edges {
-			if edge.Kind != DependencyEdge || status[edge.From.Key()] != Resolved || status[edge.To.Key()] == Resolved {
-				continue
-			}
-			reject(graph, status, edge.From, "dependency-rejected", "dependency is not resolved: "+edge.To.Key())
-			changed = true
-		}
-	}
-}
-
-func sortGraph(graph *Graph) {
-	sort.Slice(graph.Nodes, func(i, j int) bool { return graph.Nodes[i].UnitRef.Key() < graph.Nodes[j].UnitRef.Key() })
-	sort.Slice(graph.Edges, func(i, j int) bool {
-		a := graph.Edges[i].From.Key() + ":" + string(graph.Edges[i].Kind) + ":" + graph.Edges[i].Requirement + ":" + graph.Edges[i].To.Key()
-		b := graph.Edges[j].From.Key() + ":" + string(graph.Edges[j].Kind) + ":" + graph.Edges[j].Requirement + ":" + graph.Edges[j].To.Key()
-		return a < b
-	})
-	sort.Slice(graph.Issues, func(i, j int) bool {
-		a := graph.Issues[i].Unit.Key() + ":" + graph.Issues[i].Code + ":" + graph.Issues[i].Message
-		b := graph.Issues[j].Unit.Key() + ":" + graph.Issues[j].Code + ":" + graph.Issues[j].Message
-		return strings.Compare(a, b) < 0
-	})
+	return graph, nil
 }

@@ -1,83 +1,53 @@
 # Soksak composition contract 0.0.1
 
-The file at identity-home/settings.json is the installation composition record. For the release
-identity this is ~/.soksak/settings.json. Other identities use their own home and never modify the
-release composition. The file declares every selected unit's exact
-identity, activation state, absolute install path, manifest location and installation source.
-Loaders resolve no sibling checkout and guess no kind-specific directory.
+The file at identity-home/settings.json records installed plugins, sidecars, kits and their exact
+bindings. The release identity uses ~/.soksak/settings.json. Other identities use their own home.
 
-## Installation modes
+## Explicit component kinds
 
-- installed units are managed by the updater.
-- development units are never written by the updater, which returns development-unit.
+Plugins, sidecars and kits have separate arrays, types, status and public commands. There is no
+public generic component kind.
 
-Source and mode are separate axes. Source records acquisition provenance: an exact Git commit; a
-release repository and exact commit plus the SHA-256-pinned archive asset; or an explicit absolute
-local path. Mode records update policy. Changing an
-installed Git or archive unit to development preserves its source and prevents updater writes. A
-Git checkout is not implicitly development; only the settings selection changes its mode.
+- plugins are user-facing features with plugin.json, enabled and development state;
+- sidecars are process or library dependencies with their own sidecar manifest, enabled and
+  development state;
+- kits are package or runtime dependencies with their own package manifest, enabled and development
+  state;
+- contracts and specifications are exact references and conformance material, not installations;
+- host services are core build components.
 
-Changing mode, path, activation or binding replaces the settings document atomically. Every write
-uses compare-and-swap against generation and advances it by exactly one. The runtime publishes one
-composition.changed event after resolving the new document; loaders, updater and UI do not poll.
-The first settings document is generation one and reports a change from generation zero.
+Internal installer helpers may share transaction code. They do not change the public names or
+settings shape.
 
-## Unit kinds
+## Installation records
 
-Installable runtime unit identity covers plugin, sidecar and kit. Every unit has exact kind, id and
-version identity. Version ranges are not part of this contract.
+Every plugin, sidecar and kit record has exact id and version, enabled, development, an absolute
+install path, its kind-specific manifest path and acquisition source. Development is a boolean and
+is independent from acquisition source. The updater never writes a record whose development value
+is true.
 
-Plugin is the user-facing activation root. settings.json has one explicit enabled selection for
-every installed plugin. Sidecars and kits are not independently enabled; the resolved graph marks
-them active only when an enabled, resolved plugin reaches them through dependency or binding edges.
-Several plugins may reference one exact sidecar or kit node, which is installed and started once.
-One composition installs at most one version for each kind and id. A second version is a conflict,
-not a second process name or a fallback. Active dependency use is derived from enabled plugin roots;
-it is not stored as a mutable reference count.
+Source records an exact Git commit; a release repository and exact commit plus a SHA-256 archive;
+or an absolute local path. Relative paths, symbolic links and unpinned sources are rejected.
 
-Contracts and specifications are exact references in unit manifests and certified conformance
-reports in the plugin registry. They are not runtime installations. Host services are core build
-components and are not plugin-registry units.
+One settings composition contains at most one version for each plugin id, sidecar id or kit id.
+Several plugins may bind to the same exact sidecar or kit installation. Use is derived from the
+current graph rather than a stored reference count.
 
-## Paths
+## Bindings
 
-Install and development paths are clean absolute paths. Symbolic links are rejected by the host
-that reads the filesystem. Manifest paths are safe paths relative to the install path.
+A binding has an explicitly typed plugin, sidecar or kit consumer and provider, a named requirement
+and exact versions. Exactly one kind is present at each endpoint. No provider is selected by
+directory order, install order, naming convention or fallback.
 
-## Unit manifests
+## Atomic changes
 
-Every install path contains soksak-unit.json. The manifest repeats exact unit identity and declares:
-
-- exact unit dependencies;
-- exact public contracts implemented;
-- named contract requirements consumed;
-- relative entrypoints.
-
-Unit dependencies and contract bindings are separate edges. A dependency requires one exact unit.
-A binding selects the exact provider for one named consumer requirement. No provider is selected by
-directory order, install order or fallback.
-
-## Resolved graph
-
-The resolver publishes nodes, dependency and binding edges, and issues. Each node reports its
-installed or development mode and one status: resolved, disabled or rejected.
-
-A missing manifest, dependency, binding or provider; a disabled provider; an exact contract
-mismatch; or a dependency cycle rejects the affected node and its dependents. It does not stop an
-unrelated resolved node. Invalid settings syntax or identity is the only document-level failure.
-
-The resolved graph is computed output. It is exposed through status and commands and is not copied
-back into settings.json.
-
-## Failure
-
-Unknown fields, unknown enum values, relative paths, unpinned sources and duplicate exact unit
-identities are rejected. No legacy settings reader, path fallback or implicit provider exists.
+The first settings document is generation one. Every replacement uses compare-and-swap against the
+current generation and advances by one. After validation and atomic replacement the backend emits
+one composition.changed event. Loaders and UI do not poll.
 
 ## Repository boundary conformance
 
-Every repository runs the same boundary case against itself. Executable code, tests, tasks and
-scripts do not read sibling plugin, sidecar, kit, contract or service source trees. Declarative
-dependency files may name another unit or package. Public contract references are allowed. Source
-symbolic links are rejected. A registry or product composition may list unit ids as data but does
-not execute their source builds.
+Executable code, tests, tasks and scripts do not read or execute another plugin, sidecar, kit,
+contract or service source tree. Declarative package dependencies and public contract references are
+allowed. Source symbolic links are rejected. Registry and system-test repositories may list ids as
+data but do not build component source trees.

@@ -15,21 +15,6 @@ const (
 	SettingsFile = "settings.json"
 )
 
-type UnitKind string
-
-const (
-	Plugin  UnitKind = "plugin"
-	Sidecar UnitKind = "sidecar"
-	Kit     UnitKind = "kit"
-)
-
-type UnitMode string
-
-const (
-	Installed   UnitMode = "installed"
-	Development UnitMode = "development"
-)
-
 type SourceType string
 
 const (
@@ -37,14 +22,6 @@ const (
 	GitSource     SourceType = "git"
 	PathSource    SourceType = "path"
 )
-
-type UnitRef struct {
-	Kind    UnitKind `json:"kind"`
-	ID      string   `json:"id"`
-	Version string   `json:"version"`
-}
-
-func (ref UnitRef) Key() string { return string(ref.Kind) + ":" + ref.ID + "@" + ref.Version }
 
 type Source struct {
 	Type       SourceType `json:"type"`
@@ -55,74 +32,88 @@ type Source struct {
 	Path       string     `json:"path,omitempty"`
 }
 
-type Installation struct {
-	UnitRef
-	Mode        UnitMode `json:"mode"`
-	InstallPath string   `json:"installPath"`
-	Manifest    string   `json:"manifest"`
-	Source      Source   `json:"source"`
+type PluginRef struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+type SidecarRef struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+type KitRef struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
 }
 
-type PluginSelection struct {
-	Plugin  UnitRef `json:"plugin"`
-	Enabled bool    `json:"enabled"`
+type Plugin struct {
+	PluginRef
+	Enabled     bool   `json:"enabled"`
+	Development bool   `json:"development"`
+	InstallPath string `json:"installPath"`
+	Manifest    string `json:"manifest"`
+	Source      Source `json:"source"`
+}
+
+type Sidecar struct {
+	SidecarRef
+	Enabled     bool   `json:"enabled"`
+	Development bool   `json:"development"`
+	InstallPath string `json:"installPath"`
+	Manifest    string `json:"manifest"`
+	Source      Source `json:"source"`
+}
+
+type Kit struct {
+	KitRef
+	Enabled     bool   `json:"enabled"`
+	Development bool   `json:"development"`
+	InstallPath string `json:"installPath"`
+	Manifest    string `json:"manifest"`
+	Source      Source `json:"source"`
+}
+
+type Endpoint struct {
+	Plugin  *PluginRef  `json:"plugin,omitempty"`
+	Sidecar *SidecarRef `json:"sidecar,omitempty"`
+	Kit     *KitRef     `json:"kit,omitempty"`
 }
 
 type Binding struct {
-	Consumer    UnitRef `json:"consumer"`
-	Requirement string  `json:"requirement"`
-	Provider    UnitRef `json:"provider"`
+	Consumer    Endpoint `json:"consumer"`
+	Requirement string   `json:"requirement"`
+	Provider    Endpoint `json:"provider"`
 }
 
 type Settings struct {
-	Spec          string            `json:"spec"`
-	Generation    uint64            `json:"generation"`
-	Installations []Installation    `json:"installations"`
-	Plugins       []PluginSelection `json:"plugins"`
-	Bindings      []Binding         `json:"bindings"`
+	Spec       string    `json:"spec"`
+	Generation uint64    `json:"generation"`
+	Plugins    []Plugin  `json:"plugins"`
+	Sidecars   []Sidecar `json:"sidecars"`
+	Kits       []Kit     `json:"kits"`
+	Bindings   []Binding `json:"bindings"`
 }
-
-type UpdateStatus string
-
-const (
-	UpdateAllowed         UpdateStatus = "allowed"
-	UpdateDevelopmentUnit UpdateStatus = "development-unit"
-)
 
 type UpdateDecision struct {
-	Allowed bool         `json:"allowed"`
-	Status  UpdateStatus `json:"status"`
+	Allowed bool   `json:"allowed"`
+	Status  string `json:"status"`
 }
 
-var (
-	unitIDPattern  = regexp.MustCompile("^[a-z0-9][a-z0-9-]*$")
-	versionPattern = regexp.MustCompile("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
-	commitPattern  = regexp.MustCompile("^[0-9a-f]{40}$")
-	digestPattern  = regexp.MustCompile("^[0-9a-f]{64}$")
-)
+var idPattern = regexp.MustCompile("^[a-z0-9][a-z0-9-]*$")
+var versionPattern = regexp.MustCompile("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
+var commitPattern = regexp.MustCompile("^[0-9a-f]{40}$")
+var digestPattern = regexp.MustCompile("^[0-9a-f]{64}$")
 
-func ParseSettings(data []byte) (Settings, error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
+func ParseSettings(body []byte) (Settings, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	var settings Settings
 	if err := decoder.Decode(&settings); err != nil {
-		return Settings{}, fmt.Errorf("composition settings: %w", err)
+		return Settings{}, err
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		if err == nil {
-			return Settings{}, fmt.Errorf("composition settings: trailing document")
-		}
-		return Settings{}, fmt.Errorf("composition settings: trailing data: %w", err)
+		return Settings{}, fmt.Errorf("settings has trailing data")
 	}
-	if settings.Installations == nil {
-		settings.Installations = []Installation{}
-	}
-	if settings.Plugins == nil {
-		settings.Plugins = []PluginSelection{}
-	}
-	if settings.Bindings == nil {
-		settings.Bindings = []Binding{}
-	}
+	normalize(&settings)
 	if err := ValidateSettings(settings); err != nil {
 		return Settings{}, err
 	}
@@ -130,129 +121,138 @@ func ParseSettings(data []byte) (Settings, error) {
 }
 
 func ValidateSettings(settings Settings) error {
-	if settings.Spec != SettingsSpec {
-		return fmt.Errorf("composition settings spec: exact %s required", SettingsSpec)
+	if settings.Spec != SettingsSpec || settings.Generation < 1 {
+		return fmt.Errorf("invalid composition identity")
 	}
-	if settings.Generation < 1 {
-		return fmt.Errorf("composition settings generation: positive integer required")
+	if settings.Plugins == nil || settings.Sidecars == nil || settings.Kits == nil || settings.Bindings == nil {
+		return fmt.Errorf("plugins, sidecars, kits and bindings arrays are required")
 	}
-	seen := make(map[string]bool, len(settings.Installations))
-	versions := make(map[string]string, len(settings.Installations))
-	plugins := make(map[string]bool)
-	for index, installation := range settings.Installations {
-		if err := validateInstallation(installation); err != nil {
-			return fmt.Errorf("composition settings installation %d: %w", index, err)
+	versions := map[string]string{}
+	for index, value := range settings.Plugins {
+		if err := validateRecord("plugin", value.ID, value.Version, value.InstallPath, value.Manifest, value.Source); err != nil {
+			return fmt.Errorf("plugin %d: %w", index, err)
 		}
-		key := installation.UnitRef.Key()
+		if err := oneVersion(versions, "plugin", value.ID, value.Version); err != nil {
+			return err
+		}
+	}
+	for index, value := range settings.Sidecars {
+		if err := validateRecord("sidecar", value.ID, value.Version, value.InstallPath, value.Manifest, value.Source); err != nil {
+			return fmt.Errorf("sidecar %d: %w", index, err)
+		}
+		if err := oneVersion(versions, "sidecar", value.ID, value.Version); err != nil {
+			return err
+		}
+	}
+	for index, value := range settings.Kits {
+		if err := validateRecord("kit", value.ID, value.Version, value.InstallPath, value.Manifest, value.Source); err != nil {
+			return fmt.Errorf("kit %d: %w", index, err)
+		}
+		if err := oneVersion(versions, "kit", value.ID, value.Version); err != nil {
+			return err
+		}
+	}
+	seen := map[string]bool{}
+	for index, binding := range settings.Bindings {
+		consumer, err := endpointKey(binding.Consumer)
+		if err != nil {
+			return fmt.Errorf("binding %d consumer: %w", index, err)
+		}
+		if _, err := endpointKey(binding.Provider); err != nil {
+			return fmt.Errorf("binding %d provider: %w", index, err)
+		}
+		if !idPattern.MatchString(binding.Requirement) {
+			return fmt.Errorf("binding %d has invalid requirement", index)
+		}
+		key := consumer + ":" + binding.Requirement
 		if seen[key] {
-			return fmt.Errorf("composition settings installation %d: duplicate unit %s", index, key)
+			return fmt.Errorf("duplicate binding %s", key)
 		}
 		seen[key] = true
-		unitKey := string(installation.Kind) + ":" + installation.ID
-		if version, found := versions[unitKey]; found && version != installation.Version {
-			return fmt.Errorf("composition settings version conflict for %s: %s and %s", unitKey, version, installation.Version)
-		}
-		versions[unitKey] = installation.Version
-		if installation.Kind == Plugin {
-			plugins[key] = true
-		}
-	}
-	selected := make(map[string]bool, len(settings.Plugins))
-	for index, selection := range settings.Plugins {
-		if err := validateRef(selection.Plugin); err != nil {
-			return fmt.Errorf("composition settings plugin %d: %w", index, err)
-		}
-		if selection.Plugin.Kind != Plugin {
-			return fmt.Errorf("composition settings plugin %d: plugin kind required", index)
-		}
-		key := selection.Plugin.Key()
-		if !plugins[key] {
-			return fmt.Errorf("composition settings plugin %d: plugin is not installed: %s", index, key)
-		}
-		if selected[key] {
-			return fmt.Errorf("composition settings plugin %d: duplicate selection %s", index, key)
-		}
-		selected[key] = true
-	}
-	for key := range plugins {
-		if !selected[key] {
-			return fmt.Errorf("composition settings plugin selection missing: %s", key)
-		}
 	}
 	return nil
 }
 
-func validateInstallation(installation Installation) error {
-	if err := validateRef(installation.UnitRef); err != nil {
-		return err
+func PluginUpdatePolicy(value Plugin) UpdateDecision   { return updatePolicy(value.Development) }
+func SidecarUpdatePolicy(value Sidecar) UpdateDecision { return updatePolicy(value.Development) }
+func KitUpdatePolicy(value Kit) UpdateDecision         { return updatePolicy(value.Development) }
+func updatePolicy(development bool) UpdateDecision {
+	if development {
+		return UpdateDecision{Status: "development"}
 	}
-	if installation.Mode != Installed && installation.Mode != Development {
-		return fmt.Errorf("mode: installed or development required")
-	}
-	if err := absoluteCleanPath(installation.InstallPath, "installPath"); err != nil {
-		return err
-	}
-	if installation.Manifest == "" || filepath.IsAbs(installation.Manifest) || filepath.Clean(installation.Manifest) != installation.Manifest || strings.HasPrefix(installation.Manifest, ".."+string(filepath.Separator)) || installation.Manifest == ".." {
-		return fmt.Errorf("manifest: safe relative path required")
-	}
-	return validateSource(installation.Source)
+	return UpdateDecision{Allowed: true, Status: "managed"}
 }
 
-func validateRef(ref UnitRef) error {
-	if !validKind(ref.Kind) {
-		return fmt.Errorf("kind: plugin, sidecar or kit required")
+func normalize(settings *Settings) {
+	if settings.Plugins == nil {
+		settings.Plugins = []Plugin{}
 	}
-	if !unitIDPattern.MatchString(ref.ID) {
-		return fmt.Errorf("id: lowercase unit id required")
+	if settings.Sidecars == nil {
+		settings.Sidecars = []Sidecar{}
 	}
-	if !versionPattern.MatchString(ref.Version) {
-		return fmt.Errorf("version: exact semantic version required")
+	if settings.Kits == nil {
+		settings.Kits = []Kit{}
 	}
-	return nil
-}
-
-func validKind(kind UnitKind) bool {
-	switch kind {
-	case Plugin, Sidecar, Kit:
-		return true
-	default:
-		return false
+	if settings.Bindings == nil {
+		settings.Bindings = []Binding{}
 	}
 }
-
+func validateRecord(kind, id, version, path, manifest string, source Source) error {
+	if !idPattern.MatchString(id) || !versionPattern.MatchString(version) {
+		return fmt.Errorf("invalid %s identity", kind)
+	}
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return fmt.Errorf("installPath must be absolute")
+	}
+	if manifest == "" || filepath.IsAbs(manifest) || filepath.Clean(manifest) != manifest || manifest == ".." || strings.HasPrefix(manifest, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("manifest must be a safe relative path")
+	}
+	return validateSource(source)
+}
 func validateSource(source Source) error {
 	switch source.Type {
 	case GitSource:
 		if source.URL == "" || source.Repository != "" || !commitPattern.MatchString(source.Commit) || source.SHA256 != "" || source.Path != "" {
-			return fmt.Errorf("source: git requires url and exact 40-character commit only")
+			return fmt.Errorf("invalid git source")
 		}
 	case ArchiveSource:
 		if source.URL == "" || source.Repository == "" || !commitPattern.MatchString(source.Commit) || !digestPattern.MatchString(source.SHA256) || source.Path != "" {
-			return fmt.Errorf("source: archive requires repository, exact commit, asset url and exact SHA-256")
+			return fmt.Errorf("invalid archive source")
 		}
 	case PathSource:
-		if err := absoluteCleanPath(source.Path, "source.path"); err != nil {
-			return err
-		}
-		if source.URL != "" || source.Repository != "" || source.Commit != "" || source.SHA256 != "" {
-			return fmt.Errorf("source: path accepts no archive or git fields")
+		if source.Path == "" || !filepath.IsAbs(source.Path) || filepath.Clean(source.Path) != source.Path || source.URL != "" || source.Repository != "" || source.Commit != "" || source.SHA256 != "" {
+			return fmt.Errorf("invalid path source")
 		}
 	default:
-		return fmt.Errorf("source.type: archive, git or path required")
+		return fmt.Errorf("invalid source type")
 	}
 	return nil
 }
-
-func absoluteCleanPath(path, label string) error {
-	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return fmt.Errorf("%s: clean absolute path required", label)
+func oneVersion(versions map[string]string, kind, id, version string) error {
+	key := kind + ":" + id
+	if current, exists := versions[key]; exists {
+		return fmt.Errorf("%s already has version %s; version %s conflicts", key, current, version)
 	}
+	versions[key] = version
 	return nil
 }
-
-func UpdatePolicy(installation Installation) UpdateDecision {
-	if installation.Mode == Development {
-		return UpdateDecision{Status: UpdateDevelopmentUnit}
+func endpointKey(endpoint Endpoint) (string, error) {
+	count := 0
+	key := ""
+	if endpoint.Plugin != nil {
+		count++
+		key = "plugin:" + endpoint.Plugin.ID + "@" + endpoint.Plugin.Version
 	}
-	return UpdateDecision{Allowed: true, Status: UpdateAllowed}
+	if endpoint.Sidecar != nil {
+		count++
+		key = "sidecar:" + endpoint.Sidecar.ID + "@" + endpoint.Sidecar.Version
+	}
+	if endpoint.Kit != nil {
+		count++
+		key = "kit:" + endpoint.Kit.ID + "@" + endpoint.Kit.Version
+	}
+	if count != 1 {
+		return "", fmt.Errorf("exactly one plugin, sidecar or kit reference required")
+	}
+	return key, nil
 }

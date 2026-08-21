@@ -19,7 +19,7 @@ func TestSettingsRecordInstalledAndDevelopmentUnits(t *testing.T) {
 			{
 				UnitRef: testUnit(Plugin, "terminal-view"), Mode: Installed,
 				InstallPath: "/opt/soksak/terminal-view", Manifest: "soksak-unit.json",
-				Source: Source{Type: ArchiveSource, URL: "https://example.invalid/terminal-view.tar.gz", SHA256: testDigest},
+				Source: Source{Type: ArchiveSource, URL: "https://example.invalid/terminal-view.tar.gz", SHA256: testDigest, Repository: "https://github.com/example/terminal-view", Commit: testCommit},
 			},
 			{
 				UnitRef: testUnit(Sidecar, "terminal-state"), Mode: Installed,
@@ -112,7 +112,7 @@ func TestSettingsRejectRelativePathsAndUnpinnedSources(t *testing.T) {
 func TestModeChangesPreserveAcquisitionSource(t *testing.T) {
 	for _, source := range []Source{
 		{Type: GitSource, URL: "https://github.com/example/demo", Commit: testCommit},
-		{Type: ArchiveSource, URL: "https://example.invalid/demo.tgz", SHA256: testDigest},
+		{Type: ArchiveSource, URL: "https://example.invalid/demo.tgz", SHA256: testDigest, Repository: "https://github.com/example/demo", Commit: testCommit},
 		{Type: PathSource, Path: "/work/demo"},
 	} {
 		for _, mode := range []UnitMode{Installed, Development} {

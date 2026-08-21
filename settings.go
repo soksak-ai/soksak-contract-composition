@@ -47,11 +47,12 @@ type UnitRef struct {
 func (ref UnitRef) Key() string { return string(ref.Kind) + ":" + ref.ID + "@" + ref.Version }
 
 type Source struct {
-	Type   SourceType `json:"type"`
-	URL    string     `json:"url,omitempty"`
-	Commit string     `json:"commit,omitempty"`
-	SHA256 string     `json:"sha256,omitempty"`
-	Path   string     `json:"path,omitempty"`
+	Type       SourceType `json:"type"`
+	URL        string     `json:"url,omitempty"`
+	Repository string     `json:"repository,omitempty"`
+	Commit     string     `json:"commit,omitempty"`
+	SHA256     string     `json:"sha256,omitempty"`
+	Path       string     `json:"path,omitempty"`
 }
 
 type Installation struct {
@@ -216,18 +217,18 @@ func validKind(kind UnitKind) bool {
 func validateSource(source Source) error {
 	switch source.Type {
 	case GitSource:
-		if source.URL == "" || !commitPattern.MatchString(source.Commit) || source.SHA256 != "" || source.Path != "" {
+		if source.URL == "" || source.Repository != "" || !commitPattern.MatchString(source.Commit) || source.SHA256 != "" || source.Path != "" {
 			return fmt.Errorf("source: git requires url and exact 40-character commit only")
 		}
 	case ArchiveSource:
-		if source.URL == "" || !digestPattern.MatchString(source.SHA256) || source.Commit != "" || source.Path != "" {
-			return fmt.Errorf("source: archive requires url and exact SHA-256 only")
+		if source.URL == "" || source.Repository == "" || !commitPattern.MatchString(source.Commit) || !digestPattern.MatchString(source.SHA256) || source.Path != "" {
+			return fmt.Errorf("source: archive requires repository, exact commit, asset url and exact SHA-256")
 		}
 	case PathSource:
 		if err := absoluteCleanPath(source.Path, "source.path"); err != nil {
 			return err
 		}
-		if source.URL != "" || source.Commit != "" || source.SHA256 != "" {
+		if source.URL != "" || source.Repository != "" || source.Commit != "" || source.SHA256 != "" {
 			return fmt.Errorf("source: path accepts no archive or git fields")
 		}
 	default:

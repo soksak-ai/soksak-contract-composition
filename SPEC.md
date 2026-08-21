@@ -11,8 +11,9 @@ Loaders resolve no sibling checkout and guess no kind-specific directory.
 - installed units are managed by the updater.
 - development units are never written by the updater, which returns development-unit.
 
-Source and mode are separate axes. Source records acquisition provenance: an exact Git commit, a
-SHA-256-pinned archive, or an explicit absolute local path. Mode records update policy. Changing an
+Source and mode are separate axes. Source records acquisition provenance: an exact Git commit; a
+release repository and exact commit plus the SHA-256-pinned archive asset; or an explicit absolute
+local path. Mode records update policy. Changing an
 installed Git or archive unit to development preserves its source and prevents updater writes. A
 Git checkout is not implicitly development; only the settings selection changes its mode.
 

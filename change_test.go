@@ -6,7 +6,7 @@ import (
 )
 
 func emptySettings(generation uint64) Settings {
-	return Settings{Spec: SettingsSpec, Generation: generation, Installations: []Installation{}, Plugins: []PluginSelection{}, Bindings: []Binding{}}
+	return Settings{Spec: SettingsSpec, Generation: generation, Plugins: []Plugin{}, Sidecars: []Sidecar{}, Kits: []Kit{}, Bindings: []Binding{}}
 }
 
 func TestReplaceRequiresCASAndAdvancesOneGeneration(t *testing.T) {
@@ -40,7 +40,7 @@ func TestCompositionChangeHasOneStableEventName(t *testing.T) {
 }
 
 func TestInitializeCreatesOnlyGenerationOne(t *testing.T) {
-	settings, change, err := Initialize(Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{}, Plugins: []PluginSelection{}, Bindings: []Binding{}})
+	settings, change, err := Initialize(Settings{Spec: SettingsSpec, Generation: 1, Plugins: []Plugin{}, Sidecars: []Sidecar{}, Kits: []Kit{}, Bindings: []Binding{}})
 	if err != nil {
 		t.Fatal(err)
 	}

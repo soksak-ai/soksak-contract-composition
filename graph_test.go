@@ -20,9 +20,19 @@ func unitManifest(unit UnitRef) UnitManifest {
 func devInstall(unit UnitRef, enabled bool) Installation {
 	path := "/work/" + unit.ID
 	return Installation{
-		UnitRef: unit, Mode: Development, Enabled: enabled, InstallPath: path,
+		UnitRef: unit, Mode: Development, InstallPath: path,
 		Manifest: UnitManifestFile, Source: Source{Type: PathSource, Path: path},
 	}
+}
+
+func selections(units ...UnitRef) []PluginSelection {
+	result := []PluginSelection{}
+	for _, unit := range units {
+		if unit.Kind == Plugin {
+			result = append(result, PluginSelection{Plugin: unit, Enabled: true})
+		}
+	}
+	return result
 }
 
 func TestResolveBuildsExplicitCrossKindEdges(t *testing.T) {
@@ -36,6 +46,7 @@ func TestResolveBuildsExplicitCrossKindEdges(t *testing.T) {
 		Spec:          SettingsSpec,
 		Generation:    1,
 		Installations: []Installation{devInstall(view, true), devInstall(pty, true), devInstall(state, true), devInstall(kit, true)},
+		Plugins:       selections(view),
 		Bindings: []Binding{
 			{Consumer: view, Requirement: "pty", Provider: pty},
 			{Consumer: view, Requirement: "state", Provider: state},
@@ -70,7 +81,7 @@ func TestResolveRejectsOnlyTheConsumerWithAMissingBinding(t *testing.T) {
 	wanted := contract("soksak-spec-sidecar-demo")
 	consumerManifest := unitManifest(consumer)
 	consumerManifest.Consumes = []Requirement{{Name: "backend", Contract: wanted}}
-	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{devInstall(consumer, true), devInstall(unrelated, true)}}
+	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{devInstall(consumer, true), devInstall(unrelated, true)}, Plugins: selections(consumer)}
 	graph, err := Resolve(settings, map[string]UnitManifest{consumer.Key(): consumerManifest, unrelated.Key(): unitManifest(unrelated)})
 	if err != nil {
 		t.Fatal(err)
@@ -98,6 +109,7 @@ func TestResolveRejectsAContractMismatchWithoutFallback(t *testing.T) {
 		Spec:          SettingsSpec,
 		Generation:    1,
 		Installations: []Installation{devInstall(consumer, true), devInstall(provider, true)},
+		Plugins:       selections(consumer),
 		Bindings:      []Binding{{Consumer: consumer, Requirement: "backend", Provider: provider}},
 	}
 	graph, err := Resolve(settings, map[string]UnitManifest{consumer.Key(): consumerManifest, provider.Key(): providerManifest})
@@ -112,17 +124,45 @@ func TestResolveRejectsAContractMismatchWithoutFallback(t *testing.T) {
 	}
 }
 
-func TestResolveRejectsDisabledDependencies(t *testing.T) {
+func TestDisabledPluginLeavesSharedDependenciesResolvedButInactive(t *testing.T) {
 	consumer := testUnit(Plugin, "consumer")
 	dependency := testUnit(Kit, "dependency")
 	consumerManifest := unitManifest(consumer)
 	consumerManifest.Dependencies = []UnitRef{dependency}
-	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{devInstall(consumer, true), devInstall(dependency, false)}}
+	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{devInstall(consumer, false), devInstall(dependency, false)}, Plugins: []PluginSelection{{Plugin: consumer, Enabled: false}}}
 	graph, err := Resolve(settings, map[string]UnitManifest{consumer.Key(): consumerManifest, dependency.Key(): unitManifest(dependency)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if statusOf(t, graph, dependency) != Disabled || statusOf(t, graph, consumer) != Rejected {
+	if statusOf(t, graph, consumer) != Disabled || statusOf(t, graph, dependency) != Resolved {
+		t.Fatalf("nodes = %+v", graph.Nodes)
+	}
+	if activeOf(t, graph, consumer) || activeOf(t, graph, dependency) {
+		t.Fatalf("nodes = %+v", graph.Nodes)
+	}
+}
+
+func TestActivePluginsShareOneExactDependencyNode(t *testing.T) {
+	one := testUnit(Plugin, "one")
+	two := testUnit(Plugin, "two")
+	shared := testUnit(Kit, "shared")
+	oneManifest := unitManifest(one)
+	oneManifest.Dependencies = []UnitRef{shared}
+	twoManifest := unitManifest(two)
+	twoManifest.Dependencies = []UnitRef{shared}
+	settings := Settings{
+		Spec: SettingsSpec, Generation: 1,
+		Installations: []Installation{devInstall(one, true), devInstall(two, true), devInstall(shared, true)},
+		Plugins:       selections(one, two), Bindings: []Binding{},
+	}
+	graph, err := Resolve(settings, map[string]UnitManifest{one.Key(): oneManifest, two.Key(): twoManifest, shared.Key(): unitManifest(shared)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graph.Nodes) != 3 || len(graph.Edges) != 2 {
+		t.Fatalf("graph = %+v", graph)
+	}
+	if !activeOf(t, graph, one) || !activeOf(t, graph, two) || !activeOf(t, graph, shared) {
 		t.Fatalf("nodes = %+v", graph.Nodes)
 	}
 }
@@ -135,7 +175,7 @@ func TestResolveRejectsCycleMembersAndKeepsUnrelatedUnits(t *testing.T) {
 	aManifest.Dependencies = []UnitRef{b}
 	bManifest := unitManifest(b)
 	bManifest.Dependencies = []UnitRef{a}
-	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{devInstall(a, true), devInstall(b, true), devInstall(c, true)}}
+	settings := Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{devInstall(a, true), devInstall(b, true), devInstall(c, true)}, Plugins: []PluginSelection{}}
 	graph, err := Resolve(settings, map[string]UnitManifest{a.Key(): aManifest, b.Key(): bManifest, c.Key(): unitManifest(c)})
 	if err != nil {
 		t.Fatal(err)
@@ -176,5 +216,16 @@ func issueContains(graph Graph, unit UnitRef, text string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+func activeOf(t *testing.T, graph Graph, unit UnitRef) bool {
+	t.Helper()
+	for _, node := range graph.Nodes {
+		if node.UnitRef == unit {
+			return node.Active
+		}
+	}
+	t.Fatalf("node not found: %s", unit.Key())
 	return false
 }

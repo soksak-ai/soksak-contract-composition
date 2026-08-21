@@ -19,6 +19,7 @@ type GraphNode struct {
 	Mode        UnitMode   `json:"mode"`
 	InstallPath string     `json:"installPath"`
 	Status      NodeStatus `json:"status"`
+	Active      bool       `json:"active"`
 }
 
 type EdgeKind string
@@ -58,16 +59,20 @@ func Resolve(settings Settings, manifests map[string]UnitManifest) (Graph, error
 	}
 	graph := Graph{Nodes: make([]GraphNode, 0, len(settings.Installations)), Edges: []GraphEdge{}, Issues: []GraphIssue{}}
 	status := make(map[string]NodeStatus, len(settings.Installations))
+	pluginEnabled := make(map[string]bool, len(settings.Plugins))
+	for _, selection := range settings.Plugins {
+		pluginEnabled[selection.Plugin.Key()] = selection.Enabled
+	}
 	for _, installation := range settings.Installations {
 		current := Resolved
-		if !installation.Enabled {
+		if installation.Kind == Plugin && !pluginEnabled[installation.UnitRef.Key()] {
 			current = Disabled
 		}
 		manifest, found := manifests[installation.UnitRef.Key()]
-		if installation.Enabled && !found {
+		if !found {
 			current = Rejected
 			graph.Issues = append(graph.Issues, issue(installation.UnitRef, "manifest-missing", "unit manifest is missing"))
-		} else if installation.Enabled {
+		} else {
 			if err := ValidateUnitManifest(manifest); err != nil {
 				current = Rejected
 				graph.Issues = append(graph.Issues, issue(installation.UnitRef, "manifest-invalid", err.Error()))
@@ -98,18 +103,18 @@ func Resolve(settings Settings, manifests map[string]UnitManifest) (Graph, error
 	}
 	for _, installation := range settings.Installations {
 		key := installation.UnitRef.Key()
-		if status[key] != Resolved {
+		if status[key] == Rejected {
 			continue
 		}
 		manifest := manifests[key]
 		for _, dependency := range manifest.Dependencies {
-			dependencyInstall, found := installations[dependency.Key()]
+			_, found := installations[dependency.Key()]
 			if !found {
 				reject(&graph, status, installation.UnitRef, "dependency-missing", "dependency is not installed: "+dependency.Key())
 				continue
 			}
 			graph.Edges = append(graph.Edges, GraphEdge{From: installation.UnitRef, To: dependency, Kind: DependencyEdge})
-			if !dependencyInstall.Enabled || status[dependency.Key()] != Resolved {
+			if status[dependency.Key()] != Resolved {
 				reject(&graph, status, installation.UnitRef, "dependency-unavailable", "dependency is disabled or rejected: "+dependency.Key())
 			}
 		}
@@ -119,14 +124,14 @@ func Resolve(settings Settings, manifests map[string]UnitManifest) (Graph, error
 				reject(&graph, status, installation.UnitRef, "binding-missing", "binding is missing for requirement "+requirement.Name)
 				continue
 			}
-			providerInstall, installed := installations[binding.Provider.Key()]
+			_, installed := installations[binding.Provider.Key()]
 			if !installed {
 				reject(&graph, status, installation.UnitRef, "binding-provider-missing", "binding provider is not installed: "+binding.Provider.Key())
 				continue
 			}
 			contractCopy := requirement.Contract
 			graph.Edges = append(graph.Edges, GraphEdge{From: installation.UnitRef, To: binding.Provider, Kind: BindingEdge, Requirement: requirement.Name, Contract: &contractCopy})
-			if !providerInstall.Enabled || status[binding.Provider.Key()] != Resolved {
+			if status[binding.Provider.Key()] != Resolved {
 				reject(&graph, status, installation.UnitRef, "binding-provider-unavailable", "binding provider is disabled or rejected: "+binding.Provider.Key())
 				continue
 			}
@@ -140,8 +145,35 @@ func Resolve(settings Settings, manifests map[string]UnitManifest) (Graph, error
 	for index := range graph.Nodes {
 		graph.Nodes[index].Status = status[graph.Nodes[index].UnitRef.Key()]
 	}
+	markActive(&graph, pluginEnabled)
 	sortGraph(&graph)
 	return graph, nil
+}
+
+func markActive(graph *Graph, pluginEnabled map[string]bool) {
+	adjacency := make(map[string][]string)
+	for _, edge := range graph.Edges {
+		adjacency[edge.From.Key()] = append(adjacency[edge.From.Key()], edge.To.Key())
+	}
+	active := make(map[string]bool)
+	var visit func(string)
+	visit = func(key string) {
+		if active[key] {
+			return
+		}
+		active[key] = true
+		for _, next := range adjacency[key] {
+			visit(next)
+		}
+	}
+	for _, node := range graph.Nodes {
+		if node.Kind == Plugin && pluginEnabled[node.UnitRef.Key()] && node.Status == Resolved {
+			visit(node.UnitRef.Key())
+		}
+	}
+	for index := range graph.Nodes {
+		graph.Nodes[index].Active = active[graph.Nodes[index].UnitRef.Key()] && graph.Nodes[index].Status == Resolved
+	}
 }
 
 func issue(unit UnitRef, code, message string) GraphIssue {

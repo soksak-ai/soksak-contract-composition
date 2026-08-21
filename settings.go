@@ -18,12 +18,9 @@ const (
 type UnitKind string
 
 const (
-	Plugin   UnitKind = "plugin"
-	Sidecar  UnitKind = "sidecar"
-	Kit      UnitKind = "kit"
-	Contract UnitKind = "contract"
-	Spec     UnitKind = "spec"
-	Service  UnitKind = "service"
+	Plugin  UnitKind = "plugin"
+	Sidecar UnitKind = "sidecar"
+	Kit     UnitKind = "kit"
 )
 
 type UnitMode string
@@ -60,10 +57,14 @@ type Source struct {
 type Installation struct {
 	UnitRef
 	Mode        UnitMode `json:"mode"`
-	Enabled     bool     `json:"enabled"`
 	InstallPath string   `json:"installPath"`
 	Manifest    string   `json:"manifest"`
 	Source      Source   `json:"source"`
+}
+
+type PluginSelection struct {
+	Plugin  UnitRef `json:"plugin"`
+	Enabled bool    `json:"enabled"`
 }
 
 type Binding struct {
@@ -73,10 +74,11 @@ type Binding struct {
 }
 
 type Settings struct {
-	Spec          string         `json:"spec"`
-	Generation    uint64         `json:"generation"`
-	Installations []Installation `json:"installations"`
-	Bindings      []Binding      `json:"bindings"`
+	Spec          string            `json:"spec"`
+	Generation    uint64            `json:"generation"`
+	Installations []Installation    `json:"installations"`
+	Plugins       []PluginSelection `json:"plugins"`
+	Bindings      []Binding         `json:"bindings"`
 }
 
 type UpdateStatus string
@@ -114,6 +116,9 @@ func ParseSettings(data []byte) (Settings, error) {
 	if settings.Installations == nil {
 		settings.Installations = []Installation{}
 	}
+	if settings.Plugins == nil {
+		settings.Plugins = []PluginSelection{}
+	}
 	if settings.Bindings == nil {
 		settings.Bindings = []Binding{}
 	}
@@ -131,6 +136,7 @@ func ValidateSettings(settings Settings) error {
 		return fmt.Errorf("composition settings generation: positive integer required")
 	}
 	seen := make(map[string]bool, len(settings.Installations))
+	plugins := make(map[string]bool)
 	for index, installation := range settings.Installations {
 		if err := validateInstallation(installation); err != nil {
 			return fmt.Errorf("composition settings installation %d: %w", index, err)
@@ -140,6 +146,31 @@ func ValidateSettings(settings Settings) error {
 			return fmt.Errorf("composition settings installation %d: duplicate unit %s", index, key)
 		}
 		seen[key] = true
+		if installation.Kind == Plugin {
+			plugins[key] = true
+		}
+	}
+	selected := make(map[string]bool, len(settings.Plugins))
+	for index, selection := range settings.Plugins {
+		if err := validateRef(selection.Plugin); err != nil {
+			return fmt.Errorf("composition settings plugin %d: %w", index, err)
+		}
+		if selection.Plugin.Kind != Plugin {
+			return fmt.Errorf("composition settings plugin %d: plugin kind required", index)
+		}
+		key := selection.Plugin.Key()
+		if !plugins[key] {
+			return fmt.Errorf("composition settings plugin %d: plugin is not installed: %s", index, key)
+		}
+		if selected[key] {
+			return fmt.Errorf("composition settings plugin %d: duplicate selection %s", index, key)
+		}
+		selected[key] = true
+	}
+	for key := range plugins {
+		if !selected[key] {
+			return fmt.Errorf("composition settings plugin selection missing: %s", key)
+		}
 	}
 	return nil
 }
@@ -162,7 +193,7 @@ func validateInstallation(installation Installation) error {
 
 func validateRef(ref UnitRef) error {
 	if !validKind(ref.Kind) {
-		return fmt.Errorf("kind: plugin, sidecar, kit, contract, spec or service required")
+		return fmt.Errorf("kind: plugin, sidecar or kit required")
 	}
 	if !unitIDPattern.MatchString(ref.ID) {
 		return fmt.Errorf("id: lowercase unit id required")
@@ -175,7 +206,7 @@ func validateRef(ref UnitRef) error {
 
 func validKind(kind UnitKind) bool {
 	switch kind {
-	case Plugin, Sidecar, Kit, Contract, Spec, Service:
+	case Plugin, Sidecar, Kit:
 		return true
 	default:
 		return false

@@ -22,8 +22,17 @@ composition.changed event after resolving the new document; loaders, updater and
 
 ## Unit kinds
 
-The common identity covers plugin, sidecar, kit, contract, spec and service. Every unit has exact
-kind, id and version identity. Version ranges are not part of this contract.
+Installable runtime unit identity covers plugin, sidecar and kit. Every unit has exact kind, id and
+version identity. Version ranges are not part of this contract.
+
+Plugin is the user-facing activation root. settings.json has one explicit enabled selection for
+every installed plugin. Sidecars and kits are not independently enabled; the resolved graph marks
+them active only when an enabled, resolved plugin reaches them through dependency or binding edges.
+Several plugins may reference one exact sidecar or kit node, which is installed and started once.
+
+Contracts and specifications are exact references in unit manifests and certified conformance
+reports in the plugin registry. They are not runtime installations. Host services are core build
+components and are not plugin-registry units.
 
 ## Paths
 

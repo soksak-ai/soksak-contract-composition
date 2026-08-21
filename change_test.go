@@ -6,7 +6,7 @@ import (
 )
 
 func emptySettings(generation uint64) Settings {
-	return Settings{Spec: SettingsSpec, Generation: generation, Installations: []Installation{}, Bindings: []Binding{}}
+	return Settings{Spec: SettingsSpec, Generation: generation, Installations: []Installation{}, Plugins: []PluginSelection{}, Bindings: []Binding{}}
 }
 
 func TestReplaceRequiresCASAndAdvancesOneGeneration(t *testing.T) {

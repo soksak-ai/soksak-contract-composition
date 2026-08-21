@@ -8,12 +8,13 @@ Loaders resolve no sibling checkout and guess no kind-specific directory.
 
 ## Installation modes
 
-- installed units come from a pinned Git commit or a SHA-256-pinned archive and may be updated.
-- development units come from one explicit absolute path. Their source path equals their install
-  path and the updater returns development-unit without writing the tree.
+- installed units are managed by the updater.
+- development units are never written by the updater, which returns development-unit.
 
-A Git checkout is not implicitly development. A checkout installed at an exact commit uses
-installed; only an explicitly selected editable path uses development.
+Source and mode are separate axes. Source records acquisition provenance: an exact Git commit, a
+SHA-256-pinned archive, or an explicit absolute local path. Mode records update policy. Changing an
+installed Git or archive unit to development preserves its source and prevents updater writes. A
+Git checkout is not implicitly development; only the settings selection changes its mode.
 
 Changing mode, path, activation or binding replaces the settings document atomically. Every write
 uses compare-and-swap against generation and advances it by exactly one. The runtime publishes one

@@ -76,18 +76,20 @@ func TestSettingsRejectRelativePathsAndUnpinnedSources(t *testing.T) {
 	}
 }
 
-func TestModeAndSourceMustAgree(t *testing.T) {
-	developmentArchive := Installation{
-		UnitRef: testUnit(Plugin, "dev-archive"), Mode: Development, InstallPath: "/work/dev-archive",
-		Manifest: "soksak-unit.json", Source: Source{Type: ArchiveSource, URL: "https://example.invalid/a.tgz", SHA256: testDigest},
-	}
-	installedPath := Installation{
-		UnitRef: testUnit(Plugin, "installed-path"), Mode: Installed, InstallPath: "/work/installed-path",
-		Manifest: "soksak-unit.json", Source: Source{Type: PathSource, Path: "/work/installed-path"},
-	}
-	for _, install := range []Installation{developmentArchive, installedPath} {
-		if err := ValidateSettings(Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{install}}); err == nil {
-			t.Errorf("accepted mismatched mode and source: %+v", install)
+func TestModeChangesPreserveAcquisitionSource(t *testing.T) {
+	for _, source := range []Source{
+		{Type: GitSource, URL: "https://github.com/example/demo", Commit: testCommit},
+		{Type: ArchiveSource, URL: "https://example.invalid/demo.tgz", SHA256: testDigest},
+		{Type: PathSource, Path: "/work/demo"},
+	} {
+		for _, mode := range []UnitMode{Installed, Development} {
+			install := Installation{
+				UnitRef: testUnit(Plugin, "demo"), Mode: mode, InstallPath: "/work/demo",
+				Manifest: "soksak-unit.json", Source: source,
+			}
+			if err := ValidateSettings(Settings{Spec: SettingsSpec, Generation: 1, Installations: []Installation{install}}); err != nil {
+				t.Errorf("%s %s: %v", source.Type, mode, err)
+			}
 		}
 	}
 }

@@ -157,7 +157,7 @@ func validateInstallation(installation Installation) error {
 	if installation.Manifest == "" || filepath.IsAbs(installation.Manifest) || filepath.Clean(installation.Manifest) != installation.Manifest || strings.HasPrefix(installation.Manifest, ".."+string(filepath.Separator)) || installation.Manifest == ".." {
 		return fmt.Errorf("manifest: safe relative path required")
 	}
-	return validateSource(installation.Mode, installation.InstallPath, installation.Source)
+	return validateSource(installation.Source)
 }
 
 func validateRef(ref UnitRef) error {
@@ -182,31 +182,19 @@ func validKind(kind UnitKind) bool {
 	}
 }
 
-func validateSource(mode UnitMode, installPath string, source Source) error {
+func validateSource(source Source) error {
 	switch source.Type {
 	case GitSource:
-		if mode != Installed {
-			return fmt.Errorf("source: git requires installed mode")
-		}
 		if source.URL == "" || !commitPattern.MatchString(source.Commit) || source.SHA256 != "" || source.Path != "" {
 			return fmt.Errorf("source: git requires url and exact 40-character commit only")
 		}
 	case ArchiveSource:
-		if mode != Installed {
-			return fmt.Errorf("source: archive requires installed mode")
-		}
 		if source.URL == "" || !digestPattern.MatchString(source.SHA256) || source.Commit != "" || source.Path != "" {
 			return fmt.Errorf("source: archive requires url and exact SHA-256 only")
 		}
 	case PathSource:
-		if mode != Development {
-			return fmt.Errorf("source: path requires development mode")
-		}
 		if err := absoluteCleanPath(source.Path, "source.path"); err != nil {
 			return err
-		}
-		if source.Path != installPath {
-			return fmt.Errorf("source.path: development source must equal installPath")
 		}
 		if source.URL != "" || source.Commit != "" || source.SHA256 != "" {
 			return fmt.Errorf("source: path accepts no archive or git fields")

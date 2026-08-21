@@ -53,11 +53,6 @@ Unit dependencies and contract bindings are separate edges. A dependency require
 A binding selects the exact provider for one named consumer requirement. No provider is selected by
 directory order, install order or fallback.
 
-Every unit manifest declares exactly one initial provider for each consumed requirement. The
-installer copies these declarations into settings bindings. A later settings transaction may select
-another installed provider that implements the same exact contract; removing a binding rejects the
-consumer rather than restoring the manifest choice implicitly.
-
 ## Resolved graph
 
 The resolver publishes nodes, dependency and binding edges, and issues. Each node reports its

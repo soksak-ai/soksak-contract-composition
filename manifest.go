@@ -31,19 +31,13 @@ type Entrypoint struct {
 	Path string `json:"path"`
 }
 
-type ProviderBinding struct {
-	Requirement string  `json:"requirement"`
-	Provider    UnitRef `json:"provider"`
-}
-
 type UnitManifest struct {
 	Spec string `json:"spec"`
 	UnitRef
-	Dependencies []UnitRef         `json:"dependencies"`
-	Implements   []ContractRef     `json:"implements"`
-	Consumes     []Requirement     `json:"consumes"`
-	Bindings     []ProviderBinding `json:"bindings"`
-	Entrypoints  []Entrypoint      `json:"entrypoints"`
+	Dependencies []UnitRef     `json:"dependencies"`
+	Implements   []ContractRef `json:"implements"`
+	Consumes     []Requirement `json:"consumes"`
+	Entrypoints  []Entrypoint  `json:"entrypoints"`
 }
 
 var (
@@ -77,8 +71,8 @@ func ValidateUnitManifest(manifest UnitManifest) error {
 	if err := validateRef(manifest.UnitRef); err != nil {
 		return fmt.Errorf("unit manifest: %w", err)
 	}
-	if manifest.Dependencies == nil || manifest.Implements == nil || manifest.Consumes == nil || manifest.Bindings == nil || manifest.Entrypoints == nil {
-		return fmt.Errorf("unit manifest: dependencies, implements, consumes, bindings and entrypoints arrays are required")
+	if manifest.Dependencies == nil || manifest.Implements == nil || manifest.Consumes == nil || manifest.Entrypoints == nil {
+		return fmt.Errorf("unit manifest: dependencies, implements, consumes and entrypoints arrays are required")
 	}
 	if len(manifest.Entrypoints) == 0 {
 		return fmt.Errorf("unit manifest: at least one entrypoint required")
@@ -120,27 +114,6 @@ func ValidateUnitManifest(manifest UnitManifest) error {
 		}
 		seenRequirements[requirement.Name] = true
 	}
-	seenBindings := map[string]bool{}
-	for index, binding := range manifest.Bindings {
-		if !requirementPattern.MatchString(binding.Requirement) {
-			return fmt.Errorf("unit manifest binding %d: lowercase requirement name required", index)
-		}
-		if !seenRequirements[binding.Requirement] {
-			return fmt.Errorf("unit manifest binding %d: unknown requirement %s", index, binding.Requirement)
-		}
-		if seenBindings[binding.Requirement] {
-			return fmt.Errorf("unit manifest binding %d: duplicate requirement %s", index, binding.Requirement)
-		}
-		if err := validateRef(binding.Provider); err != nil {
-			return fmt.Errorf("unit manifest binding %d provider: %w", index, err)
-		}
-		seenBindings[binding.Requirement] = true
-	}
-	for name := range seenRequirements {
-		if !seenBindings[name] {
-			return fmt.Errorf("unit manifest binding missing for requirement %s", name)
-		}
-	}
 	seenEntrypoints := map[string]bool{}
 	for index, entrypoint := range manifest.Entrypoints {
 		if !validEntrypointRole(entrypoint.Role) {
@@ -162,17 +135,6 @@ func ValidateUnitManifest(manifest UnitManifest) error {
 		seenEntrypoints[key] = true
 	}
 	return nil
-}
-
-func InitialBindings(manifest UnitManifest) ([]Binding, error) {
-	if err := ValidateUnitManifest(manifest); err != nil {
-		return nil, err
-	}
-	bindings := make([]Binding, 0, len(manifest.Bindings))
-	for _, declared := range manifest.Bindings {
-		bindings = append(bindings, Binding{Consumer: manifest.UnitRef, Requirement: declared.Requirement, Provider: declared.Provider})
-	}
-	return bindings, nil
 }
 
 func validateContract(ref ContractRef) error {
